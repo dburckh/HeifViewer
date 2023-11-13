@@ -3,35 +3,35 @@ package com.homesoft.iso.heif
 import android.media.MediaCodec
 import android.media.MediaCodec.BufferInfo
 import android.media.MediaFormat
+import android.os.Build
 import android.os.Handler
 import android.util.Log
 import android.view.Surface
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.BitSet
 
-class VideoDecoder(private val mimeType:String, private val width:Int, private val height:Int,
-                   private val csd0 : ByteBuffer):
+/**
+ * Wrapper around [MediaCodec] calls back to a [BufferProvider] to fill its input [ByteBuffer]s
+ */
+class VideoDecoder(mediaFormat: MediaFormat, surface: Surface, handler:Handler,
+                   private val bufferProvider: BufferProvider, private val surfaceDecoder: SurfaceDecoder):
     MediaCodec.Callback(), AutoCloseable {
-    private val mediaCodec = MediaCodec.createDecoderByType(mimeType)
-    private val mediaFormat: MediaFormat = MediaFormat.createVideoFormat(mimeType, width, height)
+    private val mediaCodec: MediaCodec
     private val bufferInfo = BufferInfo()
     private val bitSet = BitSet()
-    private var dataSource: DataSource? = null
+    private var queuePending = false
 
     init {
-        mediaFormat.setByteBuffer("csd-0", csd0)
+        val mime =
+            mediaFormat.getString(MediaFormat.KEY_MIME) ?: throw IOException("Mime required.")
+        mediaCodec = MediaCodec.createDecoderByType(mime)
         //mediaFormat.setInteger(MediaFormat.KEY_PRIORITY, 0)
-    }
-
-    fun isSupported(mimeType:String, width:Int, height:Int, csd0: ByteBuffer):Boolean {
-        return this.mimeType == mimeType &&
-                this.width == width && this.height == height &&
-                this.csd0 == csd0
-    }
-
-    fun start(surface: Surface, dataSource: DataSource, handler:Handler) {
-        this.dataSource = dataSource
-        mediaCodec.setCallback(this, handler)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            mediaCodec.setCallback(this, handler)
+        } else {
+            mediaCodec.setCallback(this)
+        }
         mediaCodec.configure(mediaFormat, surface, null, 0)
         mediaCodec.start()
     }
@@ -39,36 +39,51 @@ class VideoDecoder(private val mimeType:String, private val width:Int, private v
     override fun close() {
         mediaCodec.flush()
         mediaCodec.release()
+        bufferProvider.close()
     }
 
-    fun maybeQueueInputBuffer() {
+    fun queueInputBuffer() {
         val index = bitSet.nextSetBit(0)
         if (index >= 0) {
-            maybeQueueInputBuffer(index)
+            queueInputBuffer(index)
+        } else {
+            queuePending = true
         }
     }
 
-    private fun maybeQueueInputBuffer(index: Int) {
-        dataSource?.let {myDataSource ->
-            mediaCodec.getInputBuffer(index)?.let { byteBuffer ->
-                when (myDataSource.populateImageBuffer(byteBuffer, bufferInfo)) {
-                    0 -> mediaCodec.queueInputBuffer(index, bufferInfo.offset, bufferInfo.size,
-                        bufferInfo.presentationTimeUs, bufferInfo.flags)
-                    MediaCodec.BUFFER_FLAG_END_OF_STREAM -> {
-                        mediaCodec.queueInputBuffer(index, 0,0,0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                        dataSource = null
-                    }
-                    // Subtle: return without clearing bit
-                    MediaCodec.INFO_TRY_AGAIN_LATER -> return
+    private fun queueInputBuffer(index: Int) {
+        mediaCodec.getInputBuffer(index)?.let { byteBuffer ->
+            when (bufferProvider.populateImageBuffer(byteBuffer, bufferInfo)) {
+                0 -> {
+                    //Log.d("VideoDecoder", "queueInputBuffer ${bufferInfo.presentationTimeUs}")
+                    mediaCodec.queueInputBuffer(
+                        index, bufferInfo.offset, bufferInfo.size,
+                        bufferInfo.presentationTimeUs, bufferInfo.flags
+                    )
                 }
-                bitSet.clear(index)
+
+                MediaCodec.BUFFER_FLAG_END_OF_STREAM -> {
+                    mediaCodec.queueInputBuffer(
+                        index,
+                        0,
+                        0,
+                        0,
+                        MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                    )
+                }
+                // Subtle: return without clearing bit
+                MediaCodec.INFO_TRY_AGAIN_LATER -> return
             }
+            bitSet.clear(index)
         }
     }
 
     override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
         bitSet.set(index)
-        maybeQueueInputBuffer(index)
+        if (queuePending) {
+            queuePending = false
+            queueInputBuffer()
+        }
     }
 
     override fun onOutputBufferAvailable(
@@ -77,17 +92,19 @@ class VideoDecoder(private val mimeType:String, private val width:Int, private v
         info: MediaCodec.BufferInfo
     ) {
         mediaCodec.releaseOutputBuffer(index, true)
+        //Log.d("VideoDecoder", "onOutputBufferAvailable ${info.presentationTimeUs}")
+        surfaceDecoder.onOutputBufferReleased(info)
     }
 
     override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
-        Log.e(ImageDecoder.TAG, "Decoder Error", e)
+        Log.e(TAG, "Decoder Error", e)
     }
 
     override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
-        Log.d(ImageDecoder.TAG, "Output Format: $format")
+        //Log.d(TAG, "Output Format: $format")
     }
 
-    private fun byteArrayToHex(byteBuffer:ByteBuffer): String {
+    private fun byteArrayToHex(byteBuffer: ByteBuffer): String {
         val sb = StringBuilder(byteBuffer.remaining() * 3)
         while (byteBuffer.hasRemaining()) {
             sb.append(String.format("%02x ", byteBuffer.get()))
@@ -95,11 +112,7 @@ class VideoDecoder(private val mimeType:String, private val width:Int, private v
         return sb.toString()
     }
 
-    interface DataSource {
-        /**
-         * Populate the next image buffer
-         * @return false if the last buffer
-         */
-        fun populateImageBuffer(byteBuffer:ByteBuffer, bufferInfo: BufferInfo):Int
-    }
+    companion object {
+        const val TAG = "ImageDecoder"
+   }
 }

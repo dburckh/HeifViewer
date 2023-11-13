@@ -12,7 +12,35 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
-
+    <!-- TextureView must be visible and greater than 0dp to create a SurfaceTexture.
+         HEIF Grids typically use 512x512 images, so it's a reasonable default -->
+    <TextureView
+        android:id="@+id/textureView"
+        android:layout_width="512px"
+        android:layout_height="512px"
+        android:translationX="-512px"
+        app:layout_constraintTop_toBottomOf="@+id/toolbar"
+        app:layout_constraintStart_toStartOf="parent"
+        />
+    <RadioGroup
+        android:id="@+id/radioGroup"
+        app:layout_constraintTop_toBottomOf="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:orientation="horizontal">
+        <RadioButton
+            android:id="@+id/radioTextureView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:text="@string/textureView"
+            />
+        <RadioButton
+            android:id="@+id/radioImageReader"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/imageReader"
+            />
+    </RadioGroup>
     <ImageView
         android:id="@+id/imageView"
         android:layout_width="0dp"
@@ -20,7 +48,6 @@
         android:scaleType="fitCenter"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/toolbar"
+        app:layout_constraintTop_toBottomOf="@+id/radioGroup"
         tools:srcCompat="@tools:sample/avatars" />
-
 </androidx.constraintlayout.widget.ConstraintLayout>

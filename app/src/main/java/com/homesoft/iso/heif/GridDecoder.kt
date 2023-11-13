@@ -3,15 +3,15 @@ package com.homesoft.iso.heif
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
-import android.os.Handler
-import android.util.Log
 import com.homesoft.iso.Heif.Grid
-import com.homesoft.iso.RandomStreamReader
+import com.homesoft.iso.Heif.Image
 
+/**
+ * Decodes a [Grid].  A grid is a matrix of [Image]s
+ */
 class GridDecoder(grid: Grid,
-                  private val listener:ImageDecoder.OnBitmapRendered,
-                  private val handler: Handler):ImageDecoder.OnBitmapRendered, AutoCloseable {
-    private val imageList = grid.imageList
+                  private val listener:BitmapListener):
+    BitmapListener {
     private val gridBitmap:Bitmap = run {
         val spatialExtents = grid.imageSpatialExtents
         Bitmap.createBitmap(spatialExtents.width,
@@ -20,37 +20,20 @@ class GridDecoder(grid: Grid,
     private val canvas = Canvas(gridBitmap)
     private val rect = Rect()
 
-    fun decode(streamReader: RandomStreamReader) {
-        if (imageList.isEmpty()) {
-            return
-        }
-        val imageDecoder = ImageDecoder(imageList[0])
-        imageDecoder.decode(imageList, streamReader, this, handler)
-    }
-
-    override fun onBitmapRendered(bitmap: Bitmap?, ptsUs: Long) {
-        Log.d(TAG, "Got Bitmap ptsUs=$ptsUs")
+    override fun onBitmap(bitmap: Bitmap?, ptsUs: Long) {
         if (bitmap == null) {
-            listener.onBitmapRendered(null, ptsUs)
+            listener.onBitmap(null, ptsUs)
             return
         }
         rect.right = rect.right + bitmap.width
         rect.bottom = rect.top + bitmap.height
         canvas.drawBitmap(bitmap, null, rect, null)
         rect.left = rect.right
-        if (rect.right > gridBitmap.width) {
+        if (rect.right >= gridBitmap.width) {
             rect.set(0, rect.bottom, 0, rect.bottom)
         }
         if (rect.top >= gridBitmap.height) {
-            listener.onBitmapRendered(gridBitmap, ptsUs)
+            listener.onBitmap(gridBitmap, ptsUs)
         }
-    }
-
-    override fun close() {
-//        imageDecoder.close()
-    }
-
-    companion object {
-        const val TAG="GridDecoder"
     }
 }

@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Heif</string>
+    <string name="textureView">TextureView</string>
+    <string name="imageReader">ImageReader</string>
 </resources>
